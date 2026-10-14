@@ -1,4 +1,4 @@
-# Task Manager — Client (Part 1)
+# Task Manager - Client (Part 1)
 
 React 18 + TypeScript + Fluent UI v9 (Vite).
 

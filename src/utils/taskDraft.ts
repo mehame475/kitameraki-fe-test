@@ -88,11 +88,11 @@ export function fromInputValue(type: CustomFieldType, input: string): string {
 
 /** Human readable value for the task table. */
 export function formatCustomValue(type: CustomFieldType, stored: string | undefined): string {
-  if (!stored) return '—';
+  if (!stored) return '-';
   if (type === 'date') return formatDate(stored);
   if (type === 'datetime') {
     const d = new Date(stored);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   }
   return stored;
 }

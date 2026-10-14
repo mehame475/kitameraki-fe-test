@@ -34,10 +34,10 @@ export function pageCount(total: number, pageSize: number): number {
 
 /** Formats a yyyy-mm-dd calendar date without timezone shifts. */
 export function formatDate(value: string): string {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(date.getTime())
-    ? '—'
+    ? '-'
     : date.toLocaleDateString(undefined, {
         year: 'numeric',
         month: 'short',

@@ -16,7 +16,7 @@ export interface HttpClient {
 async function readError(res: Response): Promise<string> {
   try {
     const { error } = (await res.json()) as { error?: { message?: string; details?: string[] } };
-    if (error?.message) return [error.message, ...(error.details ?? [])].join(' — ');
+    if (error?.message) return [error.message, ...(error.details ?? [])].join(' - ');
   } catch {
     /* non-JSON error body */
   }

@@ -161,7 +161,7 @@ export function FieldValue({ field, task }: { field: FormField; task: Task }) {
     case 'title':
       return <Text weight="semibold">{task.title}</Text>;
     case 'description':
-      return <div className={styles.clamp}>{task.description || '—'}</div>;
+      return <div className={styles.clamp}>{task.description || '-'}</div>;
     case 'status':
       return <>{STATUS_LABEL[task.status]}</>;
     case 'priority':
@@ -176,7 +176,7 @@ export function FieldValue({ field, task }: { field: FormField; task: Task }) {
       return (
         <div className={styles.tags}>
           {task.tags.length === 0
-            ? '—'
+            ? '-'
             : task.tags.map((tag) => (
                 <Badge key={tag} appearance="outline" size="small">
                   {tag}
