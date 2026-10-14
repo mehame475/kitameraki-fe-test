@@ -1,14 +1,6 @@
-import type { Task, TaskInput, TaskPatch } from '../types/task';
+import type { Task, TaskInput, TaskPatch, TaskPriority, TaskStatus } from '../types/task';
 
-/**
- * Contract between the client and the back-end.
- * Adjust the paths/payloads in HttpTaskApi to match the Azure Function endpoints.
- *
- *   GET    /tasks       -> Task[]
- *   POST   /tasks       -> Task
- *   PATCH  /tasks/:id   -> Task
- *   DELETE /tasks/:id   -> 204
- */
+/** Client-side contract; implemented by the Azure Functions API and a local mock. */
 export interface TaskApi {
   list(): Promise<Task[]>;
   create(input: TaskInput): Promise<Task>;
@@ -16,35 +8,99 @@ export interface TaskApi {
   remove(id: string): Promise<void>;
 }
 
-class HttpTaskApi implements TaskApi {
-  constructor(private readonly baseUrl: string) {}
+/** Wire format of the back-end (see task.schema.json in the API repo). */
+interface ApiTask {
+  id: string;
+  organizationId: string;
+  title: string;
+  description?: string;
+  dueDate?: string;
+  priority?: TaskPriority;
+  status: TaskStatus;
+  tags?: string[];
+}
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+const fromApi = (t: ApiTask): Task => ({
+  id: t.id,
+  title: t.title,
+  description: t.description ?? '',
+  status: t.status,
+  priority: t.priority ?? 'medium',
+  dueDate: t.dueDate ? t.dueDate.slice(0, 10) : '',
+  tags: t.tags ?? [],
+});
+
+/** The UI works with calendar dates; the API stores date-times (sent as midnight UTC). */
+const toApiDate = (date: string) => `${date}T00:00:00.000Z`;
+
+const toApiCreate = (input: TaskInput) => ({
+  title: input.title,
+  status: input.status,
+  priority: input.priority,
+  tags: input.tags,
+  ...(input.description && { description: input.description }),
+  ...(input.dueDate && { dueDate: toApiDate(input.dueDate) }),
+});
+
+/** In PATCH bodies `null` clears an optional field on the server. */
+const toApiPatch = (patch: TaskPatch) => ({
+  ...(patch.title !== undefined && { title: patch.title }),
+  ...(patch.status !== undefined && { status: patch.status }),
+  ...(patch.priority !== undefined && { priority: patch.priority }),
+  ...(patch.tags !== undefined && { tags: patch.tags }),
+  ...(patch.description !== undefined && { description: patch.description || null }),
+  ...(patch.dueDate !== undefined && { dueDate: patch.dueDate ? toApiDate(patch.dueDate) : null }),
+});
+
+interface HttpConfig {
+  baseUrl: string;
+  organizationId: string;
+  functionKey?: string;
+}
+
+class HttpTaskApi implements TaskApi {
+  constructor(private readonly config: HttpConfig) {}
+
+  private async request<T>(path: string, method: string, body?: unknown): Promise<T> {
+    const headers: Record<string, string> = { 'x-organization-id': this.config.organizationId };
+    if (this.config.functionKey) headers['x-functions-key'] = this.config.functionKey;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+    const res = await fetch(`${this.config.baseUrl}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`Request failed (${res.status}): ${await res.text()}`);
-    }
+
+    if (!res.ok) throw new Error(await readError(res));
     return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
   }
 
-  list() {
-    return this.request<Task[]>('/tasks');
+  async list() {
+    return (await this.request<ApiTask[]>('/tasks', 'GET')).map(fromApi);
   }
-  create(input: TaskInput) {
-    return this.request<Task>('/tasks', { method: 'POST', body: JSON.stringify(input) });
+  async create(input: TaskInput) {
+    return fromApi(await this.request<ApiTask>('/tasks', 'POST', toApiCreate(input)));
   }
-  update(id: string, patch: TaskPatch) {
-    return this.request<Task>(`/tasks/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    });
+  async update(id: string, patch: TaskPatch) {
+    return fromApi(
+      await this.request<ApiTask>(`/tasks/${encodeURIComponent(id)}`, 'PATCH', toApiPatch(patch)),
+    );
   }
   async remove(id: string) {
-    await this.request<void>(`/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await this.request<void>(`/tasks/${encodeURIComponent(id)}`, 'DELETE');
   }
+}
+
+/** Turns the API's `{ error: { message, details } }` payload into a readable message. */
+async function readError(res: Response): Promise<string> {
+  try {
+    const { error } = (await res.json()) as { error?: { message?: string; details?: string[] } };
+    if (error?.message) return [error.message, ...(error.details ?? [])].join(' — ');
+  } catch {
+    /* non-JSON error body */
+  }
+  return `Request failed (${res.status})`;
 }
 
 const STORAGE_KEY = 'task-manager:tasks';
@@ -72,8 +128,7 @@ class LocalTaskApi implements TaskApi {
   }
 
   async create(input: TaskInput) {
-    const now = new Date().toISOString();
-    const task: Task = { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+    const task: Task = { ...input, id: crypto.randomUUID() };
     this.write([task, ...this.read()]);
     return task;
   }
@@ -82,7 +137,7 @@ class LocalTaskApi implements TaskApi {
     const tasks = this.read();
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) throw new Error('Task not found');
-    const updated: Task = { ...tasks[index], ...patch, updatedAt: new Date().toISOString() };
+    const updated: Task = { ...tasks[index], ...patch };
     tasks[index] = updated;
     this.write(tasks);
     return updated;
@@ -94,7 +149,6 @@ class LocalTaskApi implements TaskApi {
 }
 
 function seedTasks(): Task[] {
-  const now = new Date().toISOString();
   const titles = [
     'Set up project repository',
     'Design task list layout',
@@ -109,7 +163,7 @@ function seedTasks(): Task[] {
     'Write unit tests',
     'Refactor form dialog',
   ];
-  const statuses = ['todo', 'in-progress', 'done'] as const;
+  const statuses = ['todo', 'in-progress', 'completed'] as const;
   const priorities = ['low', 'medium', 'high'] as const;
   return titles.map((title, i) => ({
     id: crypto.randomUUID(),
@@ -118,10 +172,19 @@ function seedTasks(): Task[] {
     status: statuses[i % 3],
     priority: priorities[i % 3],
     dueDate: new Date(Date.now() + (i + 1) * 86_400_000).toISOString().slice(0, 10),
-    createdAt: now,
-    updatedAt: now,
+    tags: i % 2 === 0 ? ['frontend'] : ['backend', 'api'],
   }));
 }
 
-const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '');
-export const taskApi: TaskApi = apiUrl ? new HttpTaskApi(apiUrl) : new LocalTaskApi();
+function createTaskApi(): TaskApi {
+  const baseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '');
+  if (!baseUrl) return new LocalTaskApi();
+
+  const organizationId = import.meta.env.VITE_ORGANIZATION_ID;
+  if (!organizationId) {
+    throw new Error('VITE_ORGANIZATION_ID is required when VITE_API_URL is set (see .env.example).');
+  }
+  return new HttpTaskApi({ baseUrl, organizationId, functionKey: import.meta.env.VITE_API_KEY });
+}
+
+export const taskApi: TaskApi = createTaskApi();

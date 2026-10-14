@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../types/task';
-import { DEFAULT_FILTERS, filterTasks, pageCount, paginate } from './taskView';
+import { DEFAULT_FILTERS, filterTasks, formatTags, pageCount, paginate, parseTags } from './taskView';
 
 const make = (over: Partial<Task>): Task => ({
   id: crypto.randomUUID(),
@@ -9,14 +9,13 @@ const make = (over: Partial<Task>): Task => ({
   status: 'todo',
   priority: 'low',
   dueDate: '',
-  createdAt: '',
-  updatedAt: '',
+  tags: [],
   ...over,
 });
 
 describe('filterTasks', () => {
   const tasks = [
-    make({ title: 'Write docs', status: 'done', priority: 'high' }),
+    make({ title: 'Write docs', status: 'completed', priority: 'high', tags: ['urgent'] }),
     make({ title: 'Fix bug', description: 'login page', status: 'todo' }),
   ];
 
@@ -27,8 +26,11 @@ describe('filterTasks', () => {
     expect(filterTasks(tasks, { ...DEFAULT_FILTERS, search: 'LOGIN' })).toHaveLength(1);
     expect(filterTasks(tasks, { ...DEFAULT_FILTERS, search: 'docs' })).toHaveLength(1);
   });
+  it('searches tags', () => {
+    expect(filterTasks(tasks, { ...DEFAULT_FILTERS, search: 'urg' })).toHaveLength(1);
+  });
   it('filters by status and priority', () => {
-    expect(filterTasks(tasks, { ...DEFAULT_FILTERS, status: 'done' })).toHaveLength(1);
+    expect(filterTasks(tasks, { ...DEFAULT_FILTERS, status: 'completed' })).toHaveLength(1);
     expect(filterTasks(tasks, { ...DEFAULT_FILTERS, priority: 'high' })).toHaveLength(1);
   });
 });
@@ -41,5 +43,15 @@ describe('pagination', () => {
   it('computes page count (min 1)', () => {
     expect(pageCount(23, 10)).toBe(3);
     expect(pageCount(0, 10)).toBe(1);
+  });
+});
+
+describe('tags', () => {
+  it('parses comma separated text, trimming and de-duplicating', () => {
+    expect(parseTags(' api, Backend ,, API ')).toEqual(['api', 'Backend']);
+    expect(parseTags('')).toEqual([]);
+  });
+  it('formats tags for editing', () => {
+    expect(formatTags(['a', 'b'])).toBe('a, b');
   });
 });

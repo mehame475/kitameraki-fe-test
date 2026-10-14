@@ -20,6 +20,8 @@ import {
 } from '@fluentui/react-components';
 import { CheckmarkRegular, DeleteRegular, DismissRegular, EditRegular } from '@fluentui/react-icons';
 import {
+  TITLE_MAX_LENGTH,
+  DESCRIPTION_MAX_LENGTH,
   PRIORITY_LABEL,
   STATUS_LABEL,
   TASK_PRIORITIES,
@@ -30,7 +32,7 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from '../types/task';
-import { formatDate } from '../utils/taskView';
+import { formatDate, formatTags, parseTags } from '../utils/taskView';
 
 const PRIORITY_COLOR: Record<TaskPriority, BadgeProps['color']> = {
   low: 'informative',
@@ -50,6 +52,7 @@ const useStyles = makeStyles({
   editing: { backgroundColor: tokens.colorNeutralBackground1Selected },
   fill: { width: '100%' },
   actions: { display: 'flex', whiteSpace: 'nowrap' },
+  tags: { display: 'flex', flexWrap: 'wrap', gap: tokens.spacingHorizontalXS },
   empty: {
     padding: `${tokens.spacingVerticalXXL} ${tokens.spacingHorizontalL}`,
     textAlign: 'center',
@@ -70,18 +73,21 @@ const toDraft = (t: Task): TaskInput => ({
   status: t.status,
   priority: t.priority,
   dueDate: t.dueDate,
+  tags: t.tags,
 });
 
 export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
   const styles = useStyles();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TaskInput | null>(null);
+  const [tagsText, setTagsText] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
   const startEdit = (task: Task) => {
     setEditingId(task.id);
     setDraft(toDraft(task));
+    setTagsText(formatTags(task.tags));
     setError(undefined);
   };
 
@@ -100,6 +106,7 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
         ...draft,
         title: draft.title.trim(),
         description: draft.description.trim(),
+        tags: parseTags(tagsText),
       });
       cancelEdit();
     } catch (e) {
@@ -135,7 +142,7 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
             <TableHeaderCell>Status</TableHeaderCell>
             <TableHeaderCell>Priority</TableHeaderCell>
             <TableHeaderCell>Due date</TableHeaderCell>
-            <TableHeaderCell>Created</TableHeaderCell>
+            <TableHeaderCell>Tags</TableHeaderCell>
             <TableHeaderCell>Actions</TableHeaderCell>
           </TableRow>
         </TableHeader>
@@ -160,7 +167,7 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
                       aria-label="Title"
                       autoFocus
                       value={draft.title}
-                      maxLength={120}
+                      maxLength={TITLE_MAX_LENGTH}
                       aria-invalid={!draft.title.trim()}
                       onChange={(_, d) => setField('title', d.value)}
                     />
@@ -171,7 +178,7 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
                       size="small"
                       aria-label="Description"
                       value={draft.description}
-                      maxLength={1000}
+                      maxLength={DESCRIPTION_MAX_LENGTH}
                       onChange={(_, d) => setField('description', d.value)}
                     />
                   </TableCell>
@@ -212,7 +219,15 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
                       onChange={(_, d) => setField('dueDate', d.value)}
                     />
                   </TableCell>
-                  <TableCell>{formatDate(task.createdAt)}</TableCell>
+                  <TableCell>
+                    <Input
+                      className={styles.fill}
+                      size="small"
+                      aria-label="Tags (comma separated)"
+                      value={tagsText}
+                      onChange={(_, d) => setTagsText(d.value)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className={styles.actions}>
                       <Button
@@ -267,7 +282,17 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
                   </Badge>
                 </TableCell>
                 <TableCell>{formatDate(task.dueDate)}</TableCell>
-                <TableCell>{formatDate(task.createdAt)}</TableCell>
+                <TableCell>
+                  <div className={styles.tags}>
+                    {Array.isArray(task.tags) && task.tags.length === 0
+                      ? '—'
+                      : Array.isArray(task.tags) && task.tags.map((tag) => (
+                          <Badge key={tag} appearance="outline" size="small">
+                            {tag}
+                          </Badge>
+                        ))}
+                  </div>
+                </TableCell>
                 <TableCell>
                   <div className={styles.actions}>
                     <Button

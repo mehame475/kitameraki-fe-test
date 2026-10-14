@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { formatTags, parseTags } from '../utils/taskView';
 import {
   Button,
   Dialog,
@@ -17,6 +18,8 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import {
+  DESCRIPTION_MAX_LENGTH,
+  TITLE_MAX_LENGTH,
   PRIORITY_LABEL,
   STATUS_LABEL,
   TASK_PRIORITIES,
@@ -32,15 +35,13 @@ const useStyles = makeStyles({
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spacingHorizontalM },
 });
 
-const MAX_TITLE = 120;
-const MAX_DESCRIPTION = 1000;
-
 const EMPTY: TaskInput = {
   title: '',
   description: '',
   status: 'todo',
   priority: 'medium',
   dueDate: '',
+  tags: [],
 };
 
 interface Props {
@@ -64,9 +65,11 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
           status: task.status,
           priority: task.priority,
           dueDate: task.dueDate,
+          tags: task.tags,
         }
       : EMPTY,
   );
+  const [tagsText, setTagsText] = useState(formatTags(values.tags));
   const [titleError, setTitleError] = useState<string>();
   const [submitError, setSubmitError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
@@ -84,7 +87,12 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
     setSubmitting(true);
     setSubmitError(undefined);
     try {
-      await onSubmit({ ...values, title, description: values.description.trim() });
+      await onSubmit({
+        ...values,
+        title,
+        description: values.description.trim(),
+        tags: parseTags(tagsText),
+      });
       onClose();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Could not save the task.');
@@ -113,7 +121,7 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
               >
                 <Input
                   value={values.title}
-                  maxLength={MAX_TITLE}
+                  maxLength={TITLE_MAX_LENGTH}
                   autoFocus
                   onChange={(_, data) => {
                     set('title', data.value);
@@ -125,7 +133,7 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
               <Field label="Description">
                 <Textarea
                   value={values.description}
-                  maxLength={MAX_DESCRIPTION}
+                  maxLength={DESCRIPTION_MAX_LENGTH}
                   resize="vertical"
                   onChange={(_, data) => set('description', data.value)}
                 />
@@ -164,6 +172,10 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
                   value={values.dueDate}
                   onChange={(_, data) => set('dueDate', data.value)}
                 />
+              </Field>
+
+              <Field label="Tags" hint="Separate tags with commas.">
+                <Input value={tagsText} onChange={(_, data) => setTagsText(data.value)} />
               </Field>
             </DialogContent>
             <DialogActions>
