@@ -16,7 +16,7 @@ export const PRIORITY_LABEL: Record<TaskPriority, string> = {
   high: 'High',
 };
 
-/** Limits mirrored from the back-end schema (task.schema.json). */
+// Limits mirrored from the back-end schema (task.schema.json)
 export const TITLE_MAX_LENGTH = 100;
 export const DESCRIPTION_MAX_LENGTH = 1000;
 export const TAG_MAX_LENGTH = 50;
@@ -27,9 +27,11 @@ export interface Task {
   description: string;
   status: TaskStatus;
   priority: TaskPriority;
-  /** Calendar date (yyyy-mm-dd); empty string when no due date is set. */
+  // Calendar date (yyyy-mm-dd); empty string when no due date is set
   dueDate: string;
   tags: string[];
+  // Values of custom form fields, keyed by field id
+  customFields: Record<string, string>;
 }
 
 export type TaskInput = Omit<Task, 'id'>;

@@ -1,58 +1,29 @@
 import { useState } from 'react';
 import {
-  Badge,
   Button,
-  Input,
   MessageBar,
   MessageBarBody,
   Select,
   Table,
   TableBody,
   TableCell,
-  TableCellLayout,
   TableHeader,
   TableHeaderCell,
   TableRow,
   Text,
   makeStyles,
   tokens,
-  type BadgeProps,
 } from '@fluentui/react-components';
 import { CheckmarkRegular, DeleteRegular, DismissRegular, EditRegular } from '@fluentui/react-icons';
-import {
-  TITLE_MAX_LENGTH,
-  DESCRIPTION_MAX_LENGTH,
-  PRIORITY_LABEL,
-  STATUS_LABEL,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-  type Task,
-  type TaskInput,
-  type TaskPatch,
-  type TaskPriority,
-  type TaskStatus,
-} from '../types/task';
-import { formatDate, formatTags, parseTags } from '../utils/taskView';
-
-const PRIORITY_COLOR: Record<TaskPriority, BadgeProps['color']> = {
-  low: 'informative',
-  medium: 'warning',
-  high: 'danger',
-};
+import type { FormField } from '../types/formSettings';
+import { STATUS_LABEL, TASK_STATUSES, type Task, type TaskInput, type TaskStatus } from '../types/task';
+import { fromDraft, toDraft, validateDraft, type TaskDraft } from '../utils/taskDraft';
+import { FieldControl, FieldValue } from './taskFields';
 
 const useStyles = makeStyles({
   wrapper: { overflowX: 'auto', display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalS },
-  description: {
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
-    whiteSpace: 'normal',
-  },
   editing: { backgroundColor: tokens.colorNeutralBackground1Selected },
-  fill: { width: '100%' },
   actions: { display: 'flex', whiteSpace: 'nowrap' },
-  tags: { display: 'flex', flexWrap: 'wrap', gap: tokens.spacingHorizontalXS },
   empty: {
     padding: `${tokens.spacingVerticalXXL} ${tokens.spacingHorizontalL}`,
     textAlign: 'center',
@@ -61,33 +32,24 @@ const useStyles = makeStyles({
 });
 
 interface Props {
+  // Columns follow the form settings (row by row, left to right)
+  fields: FormField[];
   tasks: Task[];
   onStatusChange: (task: Task, status: TaskStatus) => void;
-  onSave: (task: Task, patch: TaskPatch) => Promise<void>;
+  onSave: (task: Task, input: TaskInput) => Promise<void>;
   onDelete: (task: Task) => void;
 }
 
-const toDraft = (t: Task): TaskInput => ({
-  title: t.title,
-  description: t.description,
-  status: t.status,
-  priority: t.priority,
-  dueDate: t.dueDate,
-  tags: t.tags,
-});
-
-export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
+export function TaskTable({ fields, tasks, onStatusChange, onSave, onDelete }: Props) {
   const styles = useStyles();
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TaskInput | null>(null);
-  const [tagsText, setTagsText] = useState('');
+  const [draft, setDraft] = useState<TaskDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
   const startEdit = (task: Task) => {
     setEditingId(task.id);
     setDraft(toDraft(task));
-    setTagsText(formatTags(task.tags));
     setError(undefined);
   };
 
@@ -98,16 +60,16 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
   };
 
   const saveEdit = async (task: Task) => {
-    if (!draft || !draft.title.trim()) return;
+    if (!draft) return;
+    const problems = Object.values(validateDraft(draft, fields));
+    if (problems.length > 0) {
+      setError(problems.join(' '));
+      return;
+    }
     setSaving(true);
     setError(undefined);
     try {
-      await onSave(task, {
-        ...draft,
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        tags: parseTags(tagsText),
-      });
+      await onSave(task, fromDraft(draft, fields));
       cancelEdit();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the task.');
@@ -115,9 +77,6 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
       setSaving(false);
     }
   };
-
-  const setField = <K extends keyof TaskInput>(key: K, value: TaskInput[K]) =>
-    setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
 
   if (tasks.length === 0) {
     return (
@@ -137,12 +96,9 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
       <Table aria-label="Tasks" size="medium">
         <TableHeader>
           <TableRow>
-            <TableHeaderCell>Title</TableHeaderCell>
-            <TableHeaderCell>Description</TableHeaderCell>
-            <TableHeaderCell>Status</TableHeaderCell>
-            <TableHeaderCell>Priority</TableHeaderCell>
-            <TableHeaderCell>Due date</TableHeaderCell>
-            <TableHeaderCell>Tags</TableHeaderCell>
+            {fields.map((field) => (
+              <TableHeaderCell key={field.id}>{field.label}</TableHeaderCell>
+            ))}
             <TableHeaderCell>Actions</TableHeaderCell>
           </TableRow>
         </TableHeader>
@@ -150,163 +106,83 @@ export function TaskTable({ tasks, onStatusChange, onSave, onDelete }: Props) {
           {tasks.map((task) => {
             const isEditing = editingId === task.id && draft !== null;
 
-            if (isEditing) {
-              return (
-                <TableRow
-                  key={task.id}
-                  className={styles.editing}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') cancelEdit();
-                    if (e.key === 'Enter' && !saving) void saveEdit(task);
-                  }}
-                >
-                  <TableCell>
-                    <Input
-                      className={styles.fill}
-                      size="small"
-                      aria-label="Title"
-                      autoFocus
-                      value={draft.title}
-                      maxLength={TITLE_MAX_LENGTH}
-                      aria-invalid={!draft.title.trim()}
-                      onChange={(_, d) => setField('title', d.value)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      className={styles.fill}
-                      size="small"
-                      aria-label="Description"
-                      value={draft.description}
-                      maxLength={DESCRIPTION_MAX_LENGTH}
-                      onChange={(_, d) => setField('description', d.value)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      size="small"
-                      aria-label="Status"
-                      value={draft.status}
-                      onChange={(_, d) => setField('status', d.value as TaskStatus)}
-                    >
-                      {TASK_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      size="small"
-                      aria-label="Priority"
-                      value={draft.priority}
-                      onChange={(_, d) => setField('priority', d.value as TaskPriority)}
-                    >
-                      {TASK_PRIORITIES.map((p) => (
-                        <option key={p} value={p}>
-                          {PRIORITY_LABEL[p]}
-                        </option>
-                      ))}
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      size="small"
-                      type="date"
-                      aria-label="Due date"
-                      value={draft.dueDate}
-                      onChange={(_, d) => setField('dueDate', d.value)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      className={styles.fill}
-                      size="small"
-                      aria-label="Tags (comma separated)"
-                      value={tagsText}
-                      onChange={(_, d) => setTagsText(d.value)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <div className={styles.actions}>
-                      <Button
-                        appearance="primary"
-                        size="small"
-                        icon={<CheckmarkRegular />}
-                        aria-label="Save changes"
-                        disabled={saving || !draft.title.trim()}
-                        onClick={() => void saveEdit(task)}
-                      />
-                      <Button
-                        appearance="subtle"
-                        size="small"
-                        icon={<DismissRegular />}
-                        aria-label="Cancel editing"
-                        disabled={saving}
-                        onClick={cancelEdit}
-                      />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            }
-
             return (
-              <TableRow key={task.id}>
-                <TableCell>
-                  <TableCellLayout truncate>
-                    <Text weight="semibold">{task.title}</Text>
-                  </TableCellLayout>
-                </TableCell>
-                <TableCell>
-                  <div className={styles.description}>{task.description || '—'}</div>
-                </TableCell>
-                <TableCell>
-                  <Select
-                    aria-label={`Status of ${task.title}`}
-                    size="small"
-                    value={task.status}
-                    onChange={(_, data) => onStatusChange(task, data.value as TaskStatus)}
-                  >
-                    {TASK_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABEL[s]}
-                      </option>
-                    ))}
-                  </Select>
-                </TableCell>
-                <TableCell>
-                  <Badge appearance="tint" color={PRIORITY_COLOR[task.priority]}>
-                    {PRIORITY_LABEL[task.priority]}
-                  </Badge>
-                </TableCell>
-                <TableCell>{formatDate(task.dueDate)}</TableCell>
-                <TableCell>
-                  <div className={styles.tags}>
-                    {Array.isArray(task.tags) && task.tags.length === 0
-                      ? '—'
-                      : Array.isArray(task.tags) && task.tags.map((tag) => (
-                          <Badge key={tag} appearance="outline" size="small">
-                            {tag}
-                          </Badge>
+              <TableRow
+                key={task.id}
+                className={isEditing ? styles.editing : undefined}
+                onKeyDown={
+                  isEditing
+                    ? (e) => {
+                        if (e.key === 'Escape') cancelEdit();
+                        if (e.key === 'Enter' && !saving) void saveEdit(task);
+                      }
+                    : undefined
+                }
+              >
+                {fields.map((field) => (
+                  <TableCell key={field.id}>
+                    {isEditing ? (
+                      <FieldControl
+                        compact
+                        field={field}
+                        draft={draft}
+                        onChange={(changes) => setDraft((prev) => (prev ? { ...prev, ...changes } : prev))}
+                      />
+                    ) : field.kind === 'builtin' && field.key === 'status' ? (
+                      <Select
+                        size="small"
+                        aria-label={`${field.label} of ${task.title}`}
+                        value={task.status}
+                        onChange={(_, data) => onStatusChange(task, data.value as TaskStatus)}
+                      >
+                        {TASK_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {STATUS_LABEL[s]}
+                          </option>
                         ))}
-                  </div>
-                </TableCell>
+                      </Select>
+                    ) : (
+                      <FieldValue field={field} task={task} />
+                    )}
+                  </TableCell>
+                ))}
                 <TableCell>
                   <div className={styles.actions}>
-                    <Button
-                      appearance="subtle"
-                      icon={<EditRegular />}
-                      aria-label={`Edit ${task.title}`}
-                      onClick={() => startEdit(task)}
-                    />
-                    <Button
-                      appearance="subtle"
-                      icon={<DeleteRegular />}
-                      aria-label={`Delete ${task.title}`}
-                      onClick={() => onDelete(task)}
-                    />
+                    {isEditing ? (
+                      <>
+                        <Button
+                          appearance="primary"
+                          size="small"
+                          icon={<CheckmarkRegular />}
+                          aria-label="Save changes"
+                          disabled={saving}
+                          onClick={() => void saveEdit(task)}
+                        />
+                        <Button
+                          appearance="subtle"
+                          size="small"
+                          icon={<DismissRegular />}
+                          aria-label="Cancel editing"
+                          disabled={saving}
+                          onClick={cancelEdit}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          appearance="subtle"
+                          icon={<EditRegular />}
+                          aria-label={`Edit ${task.title}`}
+                          onClick={() => startEdit(task)}
+                        />
+                        <Button
+                          appearance="subtle"
+                          icon={<DeleteRegular />}
+                          aria-label={`Delete ${task.title}`}
+                          onClick={() => onDelete(task)}
+                        />
+                      </>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>

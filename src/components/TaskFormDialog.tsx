@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react';
-import { formatTags, parseTags } from '../utils/taskView';
 import {
   Button,
   Dialog,
@@ -9,90 +8,56 @@ import {
   DialogSurface,
   DialogTitle,
   Field,
-  Input,
   MessageBar,
   MessageBarBody,
-  Select,
-  Textarea,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
-import {
-  DESCRIPTION_MAX_LENGTH,
-  TITLE_MAX_LENGTH,
-  PRIORITY_LABEL,
-  STATUS_LABEL,
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-  type Task,
-  type TaskInput,
-  type TaskPriority,
-  type TaskStatus,
-} from '../types/task';
+import type { FormSettings } from '../types/formSettings';
+import type { TaskInput } from '../types/task';
+import { emptyDraft, fromDraft, validateDraft, type TaskDraft } from '../utils/taskDraft';
+import { flattenFields } from '../utils/formLayout';
+import { FieldControl } from './taskFields';
 
 const useStyles = makeStyles({
+  surface: { maxWidth: '680px', width: '100%' },
   form: { display: 'flex', flexDirection: 'column', gap: tokens.spacingVerticalM },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spacingHorizontalM },
+  row: { display: 'grid', gap: tokens.spacingHorizontalM },
 });
 
-const EMPTY: TaskInput = {
-  title: '',
-  description: '',
-  status: 'todo',
-  priority: 'medium',
-  dueDate: '',
-  tags: [],
-};
-
 interface Props {
-  /** Pass a task to edit it; omit to create a new one. */
-  task?: Task;
+  // The form layout configured on the settings page
+  settings: FormSettings;
   onSubmit: (input: TaskInput) => Promise<void>;
   onClose: () => void;
 }
 
-/**
- * Mount this component only while the dialog should be visible; its form state
- * is initialised from `task` on mount, so no reset logic is needed.
- */
-export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
+// Add-task dialog. Mount it only while it should be visible (state starts empty on mount)
+export function TaskFormDialog({ settings, onSubmit, onClose }: Props) {
   const styles = useStyles();
-  const [values, setValues] = useState<TaskInput>(
-    task
-      ? {
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          priority: task.priority,
-          dueDate: task.dueDate,
-          tags: task.tags,
-        }
-      : EMPTY,
-  );
-  const [tagsText, setTagsText] = useState(formatTags(values.tags));
-  const [titleError, setTitleError] = useState<string>();
+  const fields = flattenFields(settings);
+
+  const [draft, setDraft] = useState<TaskDraft>(emptyDraft);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
-  const set = <K extends keyof TaskInput>(key: K, value: TaskInput[K]) =>
-    setValues((prev) => ({ ...prev, [key]: value }));
+  const patch = (changes: Partial<TaskDraft>) => {
+    setDraft((prev) => ({ ...prev, ...changes }));
+    setErrors({});
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const title = values.title.trim();
-    if (!title) {
-      setTitleError('Title is required.');
+    const found = validateDraft(draft, fields);
+    if (Object.keys(found).length > 0) {
+      setErrors(found);
       return;
     }
     setSubmitting(true);
     setSubmitError(undefined);
     try {
-      await onSubmit({
-        ...values,
-        title,
-        description: values.description.trim(),
-        tags: parseTags(tagsText),
-      });
+      await onSubmit(fromDraft(draft, fields));
       onClose();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Could not save the task.');
@@ -102,10 +67,10 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
 
   return (
     <Dialog open modalType="modal" onOpenChange={(_, data) => !data.open && !submitting && onClose()}>
-      <DialogSurface>
+      <DialogSurface className={styles.surface}>
         <form onSubmit={handleSubmit} noValidate>
           <DialogBody>
-            <DialogTitle>{task ? 'Edit task' : 'Add task'}</DialogTitle>
+            <DialogTitle>Add task</DialogTitle>
             <DialogContent className={styles.form}>
               {submitError && (
                 <MessageBar intent="error">
@@ -113,77 +78,32 @@ export function TaskFormDialog({ task, onSubmit, onClose }: Props) {
                 </MessageBar>
               )}
 
-              <Field
-                label="Title"
-                required
-                validationState={titleError ? 'error' : 'none'}
-                validationMessage={titleError}
-              >
-                <Input
-                  value={values.title}
-                  maxLength={TITLE_MAX_LENGTH}
-                  autoFocus
-                  onChange={(_, data) => {
-                    set('title', data.value);
-                    if (titleError) setTitleError(undefined);
-                  }}
-                />
-              </Field>
-
-              <Field label="Description">
-                <Textarea
-                  value={values.description}
-                  maxLength={DESCRIPTION_MAX_LENGTH}
-                  resize="vertical"
-                  onChange={(_, data) => set('description', data.value)}
-                />
-              </Field>
-
-              <div className={styles.row}>
-                <Field label="Status">
-                  <Select
-                    value={values.status}
-                    onChange={(_, data) => set('status', data.value as TaskStatus)}
-                  >
-                    {TASK_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABEL[s]}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Priority">
-                  <Select
-                    value={values.priority}
-                    onChange={(_, data) => set('priority', data.value as TaskPriority)}
-                  >
-                    {TASK_PRIORITIES.map((p) => (
-                      <option key={p} value={p}>
-                        {PRIORITY_LABEL[p]}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
-
-              <Field label="Due date">
-                <Input
-                  type="date"
-                  value={values.dueDate}
-                  onChange={(_, data) => set('dueDate', data.value)}
-                />
-              </Field>
-
-              <Field label="Tags" hint="Separate tags with commas.">
-                <Input value={tagsText} onChange={(_, data) => setTagsText(data.value)} />
-              </Field>
+              {settings.rows.map((row) => (
+                <div
+                  key={row.id}
+                  className={styles.row}
+                  style={{ gridTemplateColumns: `repeat(${row.fields.length}, minmax(0, 1fr))` }}
+                >
+                  {row.fields.map((field) => (
+                    <Field
+                      key={field.id}
+                      label={field.label}
+                      required={field.kind === 'builtin' && field.key === 'title'}
+                      validationState={errors[field.id] ? 'error' : 'none'}
+                      validationMessage={errors[field.id]}
+                    >
+                      <FieldControl field={field} draft={draft} onChange={patch} />
+                    </Field>
+                  ))}
+                </div>
+              ))}
             </DialogContent>
             <DialogActions>
               <Button appearance="secondary" onClick={onClose} disabled={submitting}>
                 Cancel
               </Button>
               <Button appearance="primary" type="submit" disabled={submitting}>
-                {submitting ? 'Saving…' : task ? 'Save changes' : 'Add task'}
+                {submitting ? 'Saving…' : 'Add task'}
               </Button>
             </DialogActions>
           </DialogBody>

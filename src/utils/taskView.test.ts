@@ -10,6 +10,7 @@ const make = (over: Partial<Task>): Task => ({
   priority: 'low',
   dueDate: '',
   tags: [],
+  customFields: {},
   ...over,
 });
 
@@ -28,6 +29,10 @@ describe('filterTasks', () => {
   });
   it('searches tags', () => {
     expect(filterTasks(tasks, { ...DEFAULT_FILTERS, search: 'urg' })).toHaveLength(1);
+  });
+  it('searches custom field values', () => {
+    const custom = [make({ customFields: { f1: 'Jakarta office' } }), make({})];
+    expect(filterTasks(custom, { ...DEFAULT_FILTERS, search: 'jakarta' })).toHaveLength(1);
   });
   it('filters by status and priority', () => {
     expect(filterTasks(tasks, { ...DEFAULT_FILTERS, status: 'completed' })).toHaveLength(1);

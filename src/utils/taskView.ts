@@ -17,7 +17,8 @@ export function filterTasks(tasks: Task[], { search, status, priority }: TaskFil
     return (
       t.title.toLowerCase().includes(query) ||
       t.description.toLowerCase().includes(query) ||
-      t.tags.some((tag) => tag.toLowerCase().includes(query))
+      t.tags.some((tag) => tag.toLowerCase().includes(query)) ||
+      Object.values(t.customFields).some((value) => value.toLowerCase().includes(query))
     );
   });
 }
